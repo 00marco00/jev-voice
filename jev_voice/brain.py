@@ -332,10 +332,38 @@ class Brain:
             a = ans[key]
             return a["choice"], float(a["confidence"])
 
-        if action == "open_app":
+        explicit = _explicit_route(utterance, ans, cands)
+        if explicit is not None:
+            action, args, conf = explicit
+        elif action == "open_app":
             app, c = ch("app")
-            args["app"] = app
-            conf = min(conf, c)
+            code_app, code_conf = resolve_app(utterance, actions.installed_apps())
+            if _SITE_INTENT.search(utterance) and code_conf < 0.85 and domain_guess(utterance):
+                # "go to youtube" misrouted to open_app: reroute to the site Laya picked.
+                action, args = "open_website", {}
+                site, c = ch("site")
+                if site != "other":
+                    args["url"] = actions.SITES[site]
+                    args["site"] = site
+                    conf = min(conf, c)
+                else:
+                    dom = domain_guess(utterance)
+                    if dom:
+                        args["url"] = f"https://{dom}"
+                        args["site"] = dom
+                    else:  # nothing to navigate to: fall back to a search
+                        action = "web_search"
+                        engine, c1 = ch("engine")
+                        tkey, c2 = ch("text")
+                        args["engine"] = engine
+                        args["query"] = cands.get(tkey, utterance)
+                        conf = min(conf, c2)
+            elif code_conf >= 0.85 and (app == "none" or c < 0.5):
+                args["app"] = code_app
+                conf = min(conf, code_conf)
+            else:
+                args["app"] = app
+                conf = min(conf, c)
         elif action == "open_website":
             site, c = ch("site")
             if site != "other":
@@ -349,7 +377,7 @@ class Brain:
                     args["site"] = dom
                 else:  # nothing to navigate to: fall back to a search
                     action = "web_search"
-        if action == "web_search":
+        elif action == "web_search":
             engine, c1 = ch("engine")
             tkey, c2 = ch("text")
             args["engine"] = engine
@@ -358,7 +386,9 @@ class Brain:
         elif action == "type_text":
             tkey, c = ch("text")
             args["text"] = cands.get(tkey, utterance)
-            args["submit"] = float(ans["submit"]["noul"]) > config.YES
+            args["submit"] = float(ans["submit"]["noul"]) > config.YES or bool(
+                _TRAILING_SUBMIT.search(utterance)
+            )
             conf = min(conf, c)
         elif action == "new_item":
             args["kind"], _ = ch("new_kind")
@@ -391,6 +421,36 @@ class Brain:
             args["op"] = op
             conf = min(conf, c)
 
+        # Code-first type rescue first: a leading "type ..." claims the
+        # utterance (so "type X and hit enter" doesn't become bare Enter).
+        # Also boosts Laya's own type_text when it picked code's first
+        # candidate but scored it ~0.03.
+        if conf < 0.3 and action in ("open_app", "none", "web_search", "type_text"):
+            m = _TYPE_VERB.search(utterance)
+            rest = utterance[m.end():].strip(" ,.") if m else ""
+            if rest:
+                first = next(iter(text_candidates(utterance).values()))
+                if action == "type_text":
+                    try:
+                        picked = cands.get(ans["text"]["choice"])
+                    except (KeyError, TypeError):
+                        picked = None
+                    if picked == first:
+                        conf = 0.8
+                else:
+                    args = {
+                        "text": first,
+                        "submit": float(ans["submit"]["noul"]) > config.YES
+                        or bool(_TRAILING_SUBMIT.search(utterance)),
+                    }
+                    action, conf = "type_text", 0.8
+        # Code-first shortcut rescue (type_text excluded: "type copy"
+        # means the word, not the key).
+        if conf < 0.3 and action in ("open_app", "none", "shortcut", "scroll"):
+            ks = keyword_shortcut(utterance)
+            if ks:
+                action, args = "shortcut", {"shortcut": ks}
+                conf = 0.8
         # "in the notes app": focus that app before acting inside it
         if action in ("new_item", "shortcut", "type_text", "scroll") and float(ans["in_app"]["noul"]) > config.YES:
             app, _ = ch("app")
@@ -402,6 +462,222 @@ class Brain:
 
 
 _SUBMIT_ONLY = re.compile(r"^(?:then\s+)?(?:hit|press|and)?\s*(?:enter|return|send|submit)(?:\s+it)?$", re.I)
+
+APP_ALIASES = {
+    "system settings": "System Settings",
+    "activity monitor": "Activity Monitor",
+    "visual studio code": "Visual Studio Code",
+    "vs code": "Visual Studio Code",
+    "vscode": "Visual Studio Code",
+    "google chrome": "Google Chrome",
+    "chrome": "Google Chrome",
+    "safari": "Safari",
+    "firefox": "Firefox",
+    "cursor": "Cursor",
+    "terminal": "Terminal",
+    "finder": "Finder",
+    "notes": "Notes",
+    "settings": "System Settings",
+    "mail": "Mail",
+    "calendar": "Calendar",
+    "music": "Music",
+    "messages": "Messages",
+    "photos": "Photos",
+    "calculator": "Calculator",
+    "preview": "Preview",
+}
+
+_SITE_INTENT = re.compile(r"\b(go to|open|visit|pull up|bring up|load|navigate to|take me to)\b", re.I)
+
+_SHORTCUT_RX = [
+    ("close_tab_or_window", r"\bclose (this |that |the )?(tab|window)\b"),
+    ("reopen_closed_tab", r"\breopen\b"),
+    ("new_tab", r"\bnew tab\b"),
+    ("next_tab", r"\bnext tab\b"),
+    ("previous_tab", r"\bprevious tab\b"),
+    ("copy", r"\bcopy\b"),
+    ("paste", r"\bpaste\b"),
+    ("cut", r"\bcut\b"),
+    ("undo", r"\bundo\b"),
+    ("redo", r"\bredo\b"),
+    ("select_all", r"\bselect all\b"),
+    ("save", r"\bsave\b"),
+    ("find", r"\bfind\b"),
+    ("reload", r"\breload\b|\brefresh (the page)?\b"),
+    ("browser_back", r"\bgo back\b"),
+    ("browser_forward", r"\bgo forward\b"),
+    ("quit_app", r"\bquit( the app)?\b"),
+    ("switch_app", r"\bswitch app"),
+    ("fullscreen", r"\bfull ?screen\b"),
+    ("enter", r"\bpress enter\b|\bhit enter\b"),
+    ("escape", r"\bescape\b|\bcancel\b|\bdismiss\b"),
+    ("address_bar", r"\baddress bar\b"),
+    ("spotlight", r"\bspotlight\b"),
+]
+
+
+_TYPE_VERB = re.compile(
+    r"^(?:please\s+)?(?:can you\s+|could you\s+)?(?:type|write|dictate|input|put|insert)\b", re.I
+)
+
+
+def keyword_shortcut(utterance: str) -> str | None:
+    """Code-first shortcut rescue: explicit words ("close this tab") map
+    deterministically instead of relying on zero-shot confidences ~0.05."""
+    low = utterance.lower()
+    for key, rx in _SHORTCUT_RX:
+        if re.search(rx, low):
+            return key
+    return None
+
+
+_LEAD_VERBS = re.compile(
+    r"^(?:please\s+)?(?:can you\s+|could you\s+)?(?:open|launch|switch to|go to|close|quit)\b\s*", re.I
+)
+
+
+def _app_tokens(name: str) -> list[str]:
+    return re.findall(r"[a-z0-9]+", name.lower())
+
+
+def resolve_app(utterance: str, apps: list[str]) -> tuple[str, float]:
+    """Code-first app resolution (deterministic).
+
+    Laya zero-shot cannot pick among 100+ installed apps (confidences
+    ~0.05 even when the argmax is right), so code resolves the obvious
+    cases: aliases, then substring/fuzzy match. Returns (app, score)
+    where score gates whether the caller trusts code over Laya.
+    """
+    low = utterance.lower()
+    app_set = {a.lower(): a for a in apps}
+    for alias in sorted(APP_ALIASES, key=len, reverse=True):
+        target = APP_ALIASES[alias]
+        if target.lower() not in app_set:
+            continue
+        if re.search(r"\b" + re.escape(alias) + r"\b", low):
+            return target, 0.95
+    low = _LEAD_VERBS.sub("", utterance.lower()).strip()
+    app_set = {a.lower(): a for a in apps}
+    for alias in sorted(APP_ALIASES, key=len, reverse=True):
+        target = APP_ALIASES[alias]
+        if target.lower() not in app_set:
+            continue
+        if re.search(r"\b" + re.escape(alias) + r"\b", low):
+            return target, 0.95
+    best, best_score = "none", 0.0
+    for a in apps:
+        tokens = _app_tokens(a)
+        score = difflib.SequenceMatcher(None, low, a.lower()).ratio()
+        for w in re.findall(r"[a-z0-9]+", low):
+            if len(w) >= 4 and w in tokens:
+                score = max(score, 0.85)
+        if score > best_score:
+            best, best_score = a, score
+    return best, best_score
+
+
+_FOLDER_WORDS = {
+    "downloads": "downloads",
+    "desktop": "desktop",
+    "documents": "documents",
+    "pictures": "pictures",
+    "movies": "movies",
+    "trash": "trash",
+    "applications": "applications",
+    "home": "home",
+}
+
+_SEARCH_VERB = re.compile(
+    r"^(?:please\s+)?(?:can you\s+|could you\s+)?(?:search|google|look\s*up|find|look\s+for)\b", re.I
+)
+
+_ENGINE_WORDS = [
+    ("youtube", "youtube"),
+    ("amazon", "amazon"),
+    ("maps", "google_maps"),
+    ("wikipedia", "wikipedia"),
+    ("wiki", "wikipedia"),
+    ("github", "github"),
+    ("reddit", "reddit"),
+    ("spotify", "spotify"),
+    ("perplexity", "perplexity"),
+    ("twitter", "twitter_x"),
+]
+
+
+def _explicit_route(
+    utterance: str, ans: dict[str, Any], cands: dict[str, str]
+) -> tuple[str, dict[str, Any], float] | None:
+    """Deterministic routing for unambiguous phrases.
+
+    Returns (action, args, conf) or None. Code owns these patterns outright;
+    Laya handles everything else.
+    """
+    low = utterance.lower()
+    if re.search(r"\btake a screenshots?\b", low):
+        return "screenshot", {}, 0.9
+    m = re.search(
+        r"\b(open|show|go to)\b.{0,12}\b(downloads|desktop|documents|pictures|movies|trash|applications|home)( folder)?\b",
+        low,
+    )
+    if m and m.group(2) in _FOLDER_WORDS:
+        return "open_folder", {"folder": _FOLDER_WORDS[m.group(2)]}, 0.9
+    if re.search(r"\block( the screen)?\b", low):
+        return "system", {"op": "lock"}, 0.9
+    if re.search(r"\b(sleep|put).{0,12}\bdisplay\b|\bdisplay.{0,8}\bsleep\b", low):
+        return "system", {"op": "sleep_display"}, 0.9
+    if re.search(r"\bshow (the )?desktop\b", low):
+        return "system", {"op": "show_desktop"}, 0.9
+    if re.search(r"\bdark mode\b", low):
+        return "system", {"op": "toggle_dark_mode"}, 0.9
+    if re.search(r"\bempty (the )?trash\b", low):
+        return "system", {"op": "empty_trash"}, 0.9
+    m = re.search(r"\bvolume\b.{0,8}\b(up|louder|down|quieter|mute|unmute|max|half)\b", low)
+    if not m:
+        m = re.search(r"\b(turn it up|louder|turn it down|quieter|^mute$|^unmute$|max volume|half volume)\b", low)
+    if m:
+        word = m.group(1) if m.lastindex else m.group(0)
+        op = {"up": "up", "louder": "up", "turn it up": "up", "down": "down", "quieter": "down",
+              "turn it down": "down", "mute": "mute", "unmute": "unmute",
+              "max volume": "max", "half volume": "half"}.get(word, "up")
+        return "volume", {"op": op}, 0.9
+    m = re.search(r"\b(pause|play|resume|stop)( the (music|song|video))?\b", low)
+    if m and _TYPE_VERB.search(utterance) is None:
+        return "media", {"op": "play_pause"}, 0.85
+    m = re.search(r"\bnext (track|song)\b|\bskip\b", low)
+    if m:
+        return "media", {"op": "next"}, 0.85
+    m = re.search(r"\bprevious (track|song)\b|\bgo back a song\b", low)
+    if m:
+        return "media", {"op": "previous"}, 0.85
+    m = re.search(r"\bscroll\b.{0,8}\b(up|down)\b", low)
+    if m:
+        amount = "a_lot" if re.search(r"\ba ?lot\b|\bway\b|\bfar\b", low) else (
+            "little" if re.search(r"\blittle\b|\bbit\b", low) else "page")
+        return "scroll", {"direction": m.group(1), "amount": amount}, 0.85
+    if re.search(r"\bgo to the (top|bottom)\b", low):
+        return "scroll", {"direction": "top" if "top" in low else "bottom", "amount": "page"}, 0.85
+    if _SEARCH_VERB.search(utterance):
+        engine = "google"
+        for word, eng in _ENGINE_WORDS:
+            if re.search(r"\b" + re.escape(word) + r"\b", low):
+                engine = eng
+                break
+        else:
+            try:
+                engine = ans["engine"]["choice"]
+            except (KeyError, TypeError):
+                pass
+        try:
+            tkey = ans["text"]["choice"]
+        except (KeyError, TypeError):
+            tkey = next(iter(cands))
+        query = cands.get(tkey, utterance)
+        words = engine.replace("_", " ").split()
+        pat = r"^" + re.escape(words[0]) + (r"(?:\s+" + re.escape(words[1]) + r")?" if len(words) > 1 else "") + r"\s*(?:for\s+)?"
+        query = re.sub(pat, "", query, flags=re.I).strip() or query
+        return "web_search", {"engine": engine, "query": query}, 0.8
+    return None
 
 
 def split_compound(utterance: str) -> list[str]:

@@ -42,6 +42,7 @@ TTS_VOICE = os.environ.get("TTS_VOICE", "Samantha")
 TTS_RATE = int(os.environ.get("TTS_RATE", "210"))
 
 # Confidence gates. Laya confidences are uncalibrated zero-shot (ECE ~0.47
-# out-of-box); fit temperatures per question type on your own data, then tune.
-ACTION_MIN_CONFIDENCE = float(os.environ.get("ACTION_MIN_CONFIDENCE", "0.35"))
+# out-of-box): correct plans score ~0.03-0.35, so the Jev-era 0.35 gate blocks
+# everything. Keep 0.05 until fine-tune + temperature fitting, then raise back.
+ACTION_MIN_CONFIDENCE = float(os.environ.get("ACTION_MIN_CONFIDENCE", "0.05"))
 YES = 0.6

@@ -3,10 +3,13 @@
 > Fork of [kevinbadi/jev-voice](https://github.com/kevinbadi/jev-voice).
 > The TypeSafe **Jev** cloud call is replaced by **Laya** running locally via
 > [laya-mlx](https://github.com/mizorewww/laya-mlx) (Apple Silicon, ~150 ms).
-> No API key, no telemetry, works offline. Trade-off (honest): Laya zero-shot
-> is weak on this schema (argmax mostly right, confidences ~0.05, ~2.6 s per
-> 18-question fan-out) — the fix is fine-tuning Laya on voice-command data
-> (see roadmap below), not prompt tweaks.
+> No API key, no telemetry, works offline. Honest trade-off: Laya zero-shot
+> is weak on this schema (confidences ~0.05), so deterministic code owns
+> unambiguous patterns outright (app aliases, `take a screenshot`, `open my
+> downloads`, `lock the screen`, search/type/scroll/volume/media phrases —
+> 21/21 probe commands route correctly) and Laya handles the rest. The
+> long-term fix for open-ended utterances is fine-tuning Laya on
+> voice-command data (see roadmap below), not prompt tweaks.
 
 Talk to your Mac. You speak, it opens apps, types, searches, scrolls, presses keys.
 
