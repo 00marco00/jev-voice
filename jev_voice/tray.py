@@ -22,15 +22,22 @@ from types import SimpleNamespace
 import rumps
 
 from . import main as voice
+from .icons import PAUSED, RUNNING, symbol_png
 from .overlay import Overlay
 
 
 class VoiceTray(rumps.App):
-    def __init__(self, mode: str, device: str | None, no_overlay: bool) -> None:
-        super().__init__("🎙", quit_button=None)
+    def __init__(self, mode: str, device: str | None, no_overlay: bool,
+                 icon_on: str | None, icon_off: str | None) -> None:
+        if icon_on:
+            super().__init__("jev-voice", title=None, icon=icon_on, template=True, quit_button=None)
+        else:
+            super().__init__("🎙", quit_button=None)
         self.mode = mode
         self.device = device
         self.no_overlay = no_overlay
+        self.icon_on = icon_on
+        self.icon_off = icon_off
         self.session = None
         self.paused = False
         self.menu = [
@@ -76,14 +83,20 @@ class VoiceTray(rumps.App):
             self.session.listener.drain()
             self.paused = False
             sender.title = "Pause"
-            self.title = "🎙"
+            if self.icon_on:
+                self.icon = self.icon_on
+            else:
+                self.title = "🎙"
             voice.OVERLAY.set("idle", "Listening")
         else:
             self.session.listener.pause(3600.0)
             self.session.listener.drain()
             self.paused = True
             sender.title = "Resume"
-            self.title = "⏸"
+            if self.icon_off:
+                self.icon = self.icon_off
+            else:
+                self.title = "⏸"
             voice.OVERLAY.set("idle", "Paused")
 
     def quit(self, _sender: rumps.MenuItem) -> None:
@@ -107,7 +120,11 @@ def main() -> None:
         ov.prepare()
         voice.OVERLAY = ov
 
-    app = VoiceTray(args.mode, args.device, args.no_overlay)
+    icon_on = symbol_png(RUNNING)
+    icon_off = symbol_png(PAUSED)
+    app = VoiceTray(args.mode, args.device, args.no_overlay,
+                    str(icon_on) if icon_on else None,
+                    str(icon_off) if icon_off else None)
     app.start_engine()
     app.run()
 
