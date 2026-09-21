@@ -6,7 +6,7 @@ cd "$ROOT"
 
 echo "▸ Homebrew deps"
 command -v brew >/dev/null || { echo "Install Homebrew first: https://brew.sh"; exit 1; }
-for f in whisper-cpp ffmpeg; do brew list --formula "$f" >/dev/null 2>&1 || brew install "$f"; done
+for f in whisper.cpp ffmpeg; do brew list --formula "$f" >/dev/null 2>&1 || brew install "$f"; done
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | sh
 
 echo "▸ Whisper model"
@@ -16,7 +16,10 @@ mkdir -p models
 
 echo "▸ Python env"
 uv sync -q
-[ -f .env ] || { echo "Missing .env with TYPESAFE_API_KEY=..."; exit 1; }
+[ -f .env ] || cp .env.example .env
+echo "▸ Laya checkpoint (cached after first download)"
+uv run python -c "import laya_mlx as l; l.load('aac6fef/laya-mlx')" 2>/dev/null || \
+  HF_HUB_DISABLE_XET=1 uv run python -c "import laya_mlx as l; l.load('aac6fef/laya-mlx')"
 
 echo "▸ Caps Lock → F18 (hidutil), persisted with a LaunchAgent"
 MAPPING='{"UserKeyMapping":[{"HIDKeyboardModifierMappingSrc":0x700000039,"HIDKeyboardModifierMappingDst":0x70000006D}]}'

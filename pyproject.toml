@@ -1,12 +1,13 @@
 [project]
 name = "jev-voice"
 version = "0.1.0"
-description = "Talk to your Mac. Local whisper.cpp + one Jev (TypeSafe System One) call per command + macOS automation."
+description = "Talk to your Mac. Fully local: whisper.cpp + one Laya (MLX) call per command + macOS automation. Zero cloud."
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "httpx>=0.28.1",
+    "laya-mlx>=0.1.0",
     "numpy>=2.5.3",
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",

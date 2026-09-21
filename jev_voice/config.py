@@ -21,8 +21,17 @@ def _load_dotenv() -> None:
 _load_dotenv()
 
 TYPESAFE_API_KEY = os.environ.get("TYPESAFE_API_KEY", "")
-TYPESAFE_URL = os.environ.get("TYPESAFE_URL", "https://api.typesafe.ai/v1/systemone")
-JEV_MODEL = os.environ.get("JEV_MODEL", "jev-latest")
+if TYPESAFE_API_KEY:
+    import warnings
+
+    warnings.warn(
+        "TYPESAFE_API_KEY is ignored: this fork is full-local (laya-mlx), zero cloud.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+LAYA_MODEL = os.environ.get("LAYA_MODEL", "aac6fef/laya-mlx")
+LAYA_MAX_OPTIONS = int(os.environ.get("LAYA_MAX_OPTIONS", "10"))
+LAYA_BATCH_SIZE = int(os.environ.get("LAYA_BATCH_SIZE", "32"))
 
 WHISPER_MODEL = Path(os.environ.get("WHISPER_MODEL", ROOT / "models" / "ggml-base.en.bin"))
 WHISPER_PORT = int(os.environ.get("WHISPER_PORT", "8178"))
@@ -32,6 +41,7 @@ SAMPLE_RATE = 16000
 TTS_VOICE = os.environ.get("TTS_VOICE", "Samantha")
 TTS_RATE = int(os.environ.get("TTS_RATE", "210"))
 
-# Confidence gates (tune on your own usage; see docs.typesafe.ai/confidence)
+# Confidence gates. Laya confidences are uncalibrated zero-shot (ECE ~0.47
+# out-of-box); fit temperatures per question type on your own data, then tune.
 ACTION_MIN_CONFIDENCE = float(os.environ.get("ACTION_MIN_CONFIDENCE", "0.35"))
 YES = 0.6

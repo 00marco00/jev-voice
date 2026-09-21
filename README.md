@@ -1,22 +1,35 @@
-# Jev Voice
+# Jev Voice — full-local fork (Laya, zero cloud)
+
+> Fork of [kevinbadi/jev-voice](https://github.com/kevinbadi/jev-voice).
+> The TypeSafe **Jev** cloud call is replaced by **Laya** running locally via
+> [laya-mlx](https://github.com/mizorewww/laya-mlx) (Apple Silicon, ~150 ms).
+> No API key, no telemetry, works offline. Trade-off (honest): Laya zero-shot
+> is weak on this schema (argmax mostly right, confidences ~0.05, ~2.6 s per
+> 18-question fan-out) — the fix is fine-tuning Laya on voice-command data
+> (see roadmap below), not prompt tweaks.
 
 Talk to your Mac. You speak, it opens apps, types, searches, scrolls, presses keys.
 
-Everything runs locally except one ~250 ms call to **Jev** (TypeSafe's System One
-model), which turns the transcript into a typed action plus typed arguments in a
-single fan-out request. Jev never generates text; code produces candidate values
-and Jev *selects*. Code owns execution.
+Everything runs locally: one **Laya** forward pass turns the transcript into a
+typed action plus typed arguments in a single fan-out. Laya never generates
+text; code produces candidate values and Laya *selects* (large option sets —
+103 installed apps, 39 shortcuts — are fuzzy-shortlisted to `LAYA_MAX_OPTIONS`
+in code first, because Laya's per-option token budget collapses past ~20).
+Code owns execution.
 
 ```
-mic ─► energy VAD ─► whisper.cpp (Metal, ~100 ms) ─► Jev (1 request, ~250 ms) ─► macOS actions ─► `say`
+mic ─► energy VAD ─► whisper.cpp (Metal, ~100 ms) ─► Laya (MLX, local) ─► macOS actions ─► `say`
 ```
 
 ## Setup (macOS, Apple Silicon)
 
 ```sh
-cp .env.example .env                       # add your TYPESAFE_API_KEY from console.typesafe.ai
+cp .env.example .env
 ./scripts/setup.sh
 ```
+
+No API key to add — `.env` only holds local settings (`LAYA_MODEL`,
+`LAYA_MAX_OPTIONS`). First run downloads the Laya checkpoint (~800 MB, cached).
 
 The script installs whisper-cpp + ffmpeg, downloads the model, syncs the Python
 env, remaps **Caps Lock → F18** with `hidutil` (persisted by a LaunchAgent so it
@@ -109,11 +122,11 @@ instant).
 ```
 jev_voice/
   main.py     loop, CLI, compound handling
-  brain.py    Jev questions, candidate extraction, Plan
+  brain.py    Laya questions, fuzzy shortlist, candidate extraction, Plan
   actions.py  macOS execution (open, keystrokes, scroll, volume, media keys…)
   audio.py    mic + VAD endpointing
-  stt.py      whisper-server client
-  tts.py      macOS `say`
+  stt.py      whisper-server client (localhost only)
+  tts.py      macOS `say` (ElevenLabs only if ELEVENLABS_API_KEY is set)
   config.py   env / thresholds
   hotkey.py   Caps Lock (remapped to F18) global key tap
   overlay.py  floating transcription pill (AppKit)
@@ -121,6 +134,22 @@ jev_voice/
 scripts/
   setup.sh    one-shot install: deps, model, Caps Lock remap, launcher, permissions
 ```
+
+## Roadmap: fine-tune Laya on voice commands
+
+Measured on MacBook Air (laya-mlx, FP16): argmax correct on ~3/6 probe commands,
+confidences ~0.03–0.35 (gate `ACTION_MIN_CONFIDENCE=0.35` blocks most), ~2.6 s
+per 18-question fan-out. This matches Laya's model card: base checkpoints are
+near-chance zero-shot (0.362 vs 0.318 random); the 0.766 figure needs
+fine-tuning, and raw ECE is 0.466 until temperatures are refit. Next steps:
+
+1. Collect training data: log `(utterance, apps, candidates, Jev-or-human labels)`
+   for a few hundred real commands (distillation from the Jev API, or hand labels).
+2. Fine-tune with the upstream notebook on Kaggle 2×T4 (free, ~4–5 h):
+   `notebooks/laya_finetune_typed_decisions_2xT4_kaggle.ipynb` in
+   [NandhaKishorM/laya](https://github.com/NandhaKishorM/laya).
+3. Convert the fine-tuned checkpoint to MLX, point `LAYA_MODEL` at it, refit
+   temperatures per question type (ECE 0.466 → ~0.08), raise the gate back up.
 
 ## License
 

@@ -1,4 +1,4 @@
-"""Jev Voice: speak to your Mac.
+"""Laya Voice: speak to your Mac.
 
     uv run jev-voice                     # hands-free: say "Alfred, ..." (or tap Caps Lock, then speak)
     uv run jev-voice --hold              # Caps Lock: hold to talk (tap = toggle), no wake word
@@ -261,7 +261,7 @@ def strip_wake(text: str) -> tuple[bool, str]:
 
 def run_smart(s: Session) -> None:
     """Hands-free. Mic is always open; only utterances that name the assistant (or follow
-    a command within FOLLOWUP_SECONDS, or follow a Caps Lock tap) are sent to Jev."""
+    a command within FOLLOWUP_SECONDS, or follow a Caps Lock tap) are sent to Laya."""
     from .hotkey import CapsLockListener, capslock_remapped, remap_capslock
 
     armed = {"until": 0.0}
@@ -281,7 +281,7 @@ def run_smart(s: Session) -> None:
     names = ", ".join(w.capitalize() for w in WAKE_WORDS[:2])
     print(f"🎙  Hands-free. Say \"{names.split(', ')[0]}, open chrome\"."
           + (" Or tap CAPS LOCK then speak." if caps else " (Caps Lock tap unavailable: no Accessibility/Input Monitoring.)")
-          + f"  (Jev {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
+          + f"  (Laya {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
     if FEEDBACK == "voice":
         s.speaker.say(flavor("Ready."))
     else:
@@ -311,12 +311,12 @@ def run_smart(s: Session) -> None:
                 print(f"   ·  {text}   (ignored: no name, stt {stt_ms}ms)")
                 OVERLAY.set("idle", f"Ignored: {text}", revert_after=2.5)
                 continue
-            # No name: let Jev judge whether this is a command for the computer at all.
+            # No name: let Laya judge whether this is a command for the computer at all.
             gate = s.brain.evaluate(text)
             ok_cmd = (gate.args.get("addressed", 0) >= UNNAMED_MIN_ADDRESSED
                       and gate.confidence >= UNNAMED_MIN_CONFIDENCE)
             if ok_cmd and gate.action == "none":
-                print(f"   ·  {text}   (Jev: none, addressed={gate.args.get('addressed')} conf={gate.confidence:.2f}, stt {stt_ms}ms)")
+                print(f"   ·  {text}   (Laya: none, addressed={gate.args.get('addressed')} conf={gate.confidence:.2f}, stt {stt_ms}ms)")
                 continue
             if not ok_cmd:
                 print(f"   ·  {text}   (ignored: addressed={gate.args.get('addressed')} {gate.action} conf={gate.confidence:.2f}, stt {stt_ms}ms)")
@@ -398,11 +398,11 @@ def run_capslock(s: Session) -> None:
             if tap.start():
                 break
             if perms.get("accessibility") and perms.get("input_monitoring"):
-                print("  Permissions granted but the tap still fails. Restart Jev Voice.")
+                print("  Permissions granted but the tap still fails. Restart Laya Voice.")
                 s.speaker.say("Permissions granted. Please restart me.")
                 sys.exit(3)
             perms = request_permissions()
-    print(f"⌨️  Hold CAPS LOCK and speak. Tap it to toggle hands-free. (Jev {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
+    print(f"⌨️  Hold CAPS LOCK and speak. Tap it to toggle hands-free. (Laya {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
     s.speaker.say(flavor("Ready."))
     while True:
         pcm = done.get()
@@ -411,7 +411,7 @@ def run_capslock(s: Session) -> None:
 
 
 def run_always_on(s: Session) -> None:
-    print(f"🎙  Listening (Jev {s.brain.model}, whisper base.en). Say 'stop listening' to quit.")
+    print(f"🎙  Listening (Laya {s.brain.model}, whisper base.en). Say 'stop listening' to quit.")
     s.speaker.say(flavor("Ready."))
     s.listener.pause(0.8)
     while True:
@@ -472,7 +472,7 @@ def run_voice(args: argparse.Namespace) -> None:
 def main() -> None:
     p = argparse.ArgumentParser(prog="jev-voice", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--text", help="run one command from text instead of the microphone")
-    p.add_argument("--dry-run", action="store_true", help="plan with Jev but do not touch the computer")
+    p.add_argument("--dry-run", action="store_true", help="plan with Laya but do not touch the computer")
     p.add_argument("--hold", action="store_true", help="Caps Lock hold-to-talk only, no wake word")
     p.add_argument("--always-on", action="store_true", help="open mic, every utterance is a command (no wake word)")
     p.add_argument("--ptt", action="store_true", help="push-to-talk in the terminal (Enter to start/stop)")

@@ -1,18 +1,24 @@
-"""Jev intent layer.
+"""Local intent layer (full-local, zero cloud).
 
-One HTTP request per utterance: a speculative fan-out of every question the
-executor could need. Jev never generates text; every free-text value (text to
-type, search query, domain) is produced as *candidates* in code and Jev selects
-the right one (docs: "select instead of generate").
+One local forward pass per utterance via laya-mlx (Apple Silicon MLX):
+a speculative fan-out of every question the executor could need.
+Laya never generates text; every free-text value (text to type, search
+query, domain) is produced as *candidates* in code and Laya selects
+the right one ("select instead of generate").
+
+Large option sets (> LAYA_MAX_OPTIONS, e.g. 103 installed apps or 39
+shortcuts) are pre-shortlisted in code with fuzzy matching before the
+forward pass: Laya's per-option token budget collapses past ~20 options
+(Banking77: 0.425 vs Jev 0.870). The shortlist always keeps the fallback
+key (`none` / `other`) so "no match" stays expressible.
 """
 from __future__ import annotations
 
+import difflib
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
-
-import httpx
 
 from . import actions, config
 
@@ -100,7 +106,7 @@ def _clean(s: str) -> str:
 
 
 def text_candidates(utterance: str) -> dict[str, str]:
-    """Candidate spans that might be the payload text. Jev picks; code never guesses."""
+    """Candidate spans that might be the payload text. Laya picks; code never guesses."""
     cands: list[str] = []
 
     def add(t: str) -> None:
@@ -143,6 +149,28 @@ def domain_guess(utterance: str) -> str | None:
     return None
 
 
+def _shortlist(
+    utterance: str,
+    criteria: dict[str, Any],
+    max_n: int,
+    keep: tuple[str, ...] = (),
+) -> dict[str, Any]:
+    """Fuzzy pre-filter for large choice sets (see module docstring)."""
+    if len(criteria) <= max_n:
+        return criteria
+    fallback = {k: criteria[k] for k in keep if k in criteria}
+    rest = [(k, v) for k, v in criteria.items() if k not in fallback]
+    hay = utterance.lower()
+    ranked = sorted(
+        rest,
+        key=lambda kv: difflib.SequenceMatcher(
+            None, hay, f"{kv[0]} {kv[1] or ''}".lower()
+        ).ratio(),
+        reverse=True,
+    )
+    return dict(list(fallback.items()) + ranked[: max(0, max_n - len(fallback))])
+
+
 @dataclass
 class Plan:
     utterance: str
@@ -158,25 +186,31 @@ class Plan:
 
 
 class Brain:
-    def __init__(self, api_key: str | None = None, model: str | None = None) -> None:
-        self.api_key = api_key or config.TYPESAFE_API_KEY
-        if not self.api_key:
-            raise SystemExit("TYPESAFE_API_KEY is not set (put it in .env)")
-        self.model = model or config.JEV_MODEL
-        self.http = httpx.Client(
-            timeout=15.0,
-            headers={"Authorization": f"Bearer {self.api_key}", "Content-Type": "application/json"},
-            http2=False,
-        )
-        # Keep the TCP+TLS connection warm so the first real command is fast.
-        try:
-            self.http.get("https://api.typesafe.ai/v1/models")
-        except Exception:
-            pass
+    def __init__(self, model: str | None = None) -> None:
+        self.model = model or config.LAYA_MODEL
+        self._agent: Any = None
+
+    def _agent_lazy(self) -> Any:
+        if self._agent is None:
+            import laya_mlx as laya
+
+            self._agent = laya.load(self.model, batch_size=config.LAYA_BATCH_SIZE)
+        return self._agent
 
     # ------------------------------------------------------------ questions
 
-    def _questions(self, cands: dict[str, str], apps: list[str]) -> dict[str, Any]:
+    def _questions(
+        self, utterance: str, cands: dict[str, str], apps: list[str]
+    ) -> dict[str, Any]:
+        max_n = config.LAYA_MAX_OPTIONS
+        app_criteria = _shortlist(
+            utterance, {**{a: None for a in apps}, "none": "No listed application matches what the user said"},
+            max_n, keep=("none",),
+        )
+        site_criteria = _shortlist(
+            utterance, {**{s: None for s in actions.SITES}, "other": "A site not in this list"},
+            max_n, keep=("other",),
+        )
         q: dict[str, Any] = {
             "action": {
                 "type": "choice",
@@ -196,12 +230,12 @@ class Brain:
             "app": {
                 "type": "choice",
                 "instructions": "Assume the user wants to open or switch to an application. Which installed application in `apps` do they mean? Match on meaning: 'chrome' means Google Chrome, 'settings' means System Settings, 'browser' means the default browser. Choose `none` if no listed app matches.",
-                "criteria": {**{a: None for a in apps}, "none": "No listed application matches what the user said"},
+                "criteria": app_criteria,
             },
             "site": {
                 "type": "choice",
                 "instructions": "Assume the user wants to open a website. Which site do they mean? Choose `other` if it is not one of the listed sites.",
-                "criteria": {**{s: None for s in actions.SITES}, "other": "A site not in this list"},
+                "criteria": site_criteria,
             },
             "engine": {
                 "type": "choice",
@@ -236,7 +270,7 @@ class Brain:
             "shortcut": {
                 "type": "choice",
                 "instructions": "Assume the user wants a key or keyboard shortcut pressed. Which one?",
-                "criteria": SHORTCUT_CRITERIA,
+                "criteria": _shortlist(utterance, SHORTCUT_CRITERIA, max_n),
             },
             "scroll_dir": {
                 "type": "choice",
@@ -282,11 +316,9 @@ class Brain:
             "apps": apps,
             "candidates": cands,
         }
-        payload = {"state": state, "model": self.model, "questions": self._questions(cands, apps)}
+        questions = self._questions(utterance, cands, apps)
         t0 = time.perf_counter()
-        r = self.http.post(config.TYPESAFE_URL, json=payload)
-        r.raise_for_status()
-        data = r.json()
+        data = self._agent_lazy().predict(state, questions)
         ms = int((time.perf_counter() - t0) * 1000)
         return self._to_plan(utterance, data["answers"], cands, ms)
 
