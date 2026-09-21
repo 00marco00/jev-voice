@@ -44,7 +44,9 @@ class WhisperServer:
     def start(self) -> None:
         if self._alive():
             return
-        exe = shutil.which("whisper-server")
+        exe = shutil.which("whisper-server") or shutil.which(
+            "whisper-server", path="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+        )
         if not exe:
             raise SystemExit("whisper-server not found: brew install whisper-cpp")
         if not config.WHISPER_MODEL.exists():

@@ -123,8 +123,10 @@ def web_search(engine: str, query: str) -> None:
 
 # ---------------------------------------------------------------- keyboard
 
-def _osascript(script: str) -> str:
-    out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+def _osascript(script: str, timeout: float = 8.0) -> str:
+    # Timeout: under a background LaunchAgent a TCC prompt can never be
+    # answered, so osascript would hang forever. Fail fast instead.
+    out = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=timeout)
     if out.returncode != 0:
         raise RuntimeError(out.stderr.strip())
     return out.stdout.strip()

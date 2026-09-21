@@ -42,6 +42,7 @@ class VoiceTray(rumps.App):
         self.session = None
         self.thread = None
         self.paused = False
+        self.dead_notified = False
         self.mode_items = {}
         mode_menu = rumps.MenuItem("Mode")
         for m in ("hold", "smart", "always"):
@@ -53,9 +54,12 @@ class VoiceTray(rumps.App):
             rumps.MenuItem("Pause", callback=self.toggle),
             None,
             mode_menu,
+            rumps.MenuItem("Restart engine", callback=self.restart),
             None,
             rumps.MenuItem("Quit", callback=self.quit),
         ]
+        self.watchdog = rumps.Timer(self._watch, 5)
+        self.watchdog.start()
 
     # ------------------------------------------------------------ engine
 
@@ -71,12 +75,29 @@ class VoiceTray(rumps.App):
             self.thread = None
         self.session = None
 
+    def restart(self, _sender: rumps.MenuItem) -> None:
+        self._set_paused(False)
+        self.stop_engine()
+        self.dead_notified = False
+        voice.OVERLAY.set("idle", "Restarting…")
+        self.start_engine()
+
+    def _watch(self, _timer: rumps.Timer) -> None:
+        if self.thread is not None and not self.thread.is_alive() and not self.dead_notified:
+            self.dead_notified = True
+            self.session = None
+            if self.icon_off:
+                self.icon = self.icon_off
+            voice.OVERLAY.set("error", "Engine died — Restart engine")
+            rumps.notification("jev-voice", "Engine died", "Click Restart engine in the menu.")
+
     def switch_mode(self, sender: rumps.MenuItem) -> None:
         mode = sender.title.lower()
         if mode == self.mode:
             return
         self._set_paused(False)
         self.stop_engine()
+        self.dead_notified = False
         self.mode = mode
         for m, item in self.mode_items.items():
             item.state = 1 if m == mode else 0
