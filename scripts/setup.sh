@@ -66,6 +66,9 @@ cat > "$AGENTS/ai.jev.tray.plist" <<PLIST
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
+  <key>EnvironmentVariables</key><dict>
+    <key>PYTHONUNBUFFERED</key><string>1</string>
+  </dict>
   <key>StandardOutPath</key><string>$HOME/Library/Logs/jev-tray.log</string>
   <key>StandardErrorPath</key><string>$HOME/Library/Logs/jev-tray.log</string>
 </dict></plist>
