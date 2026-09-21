@@ -485,6 +485,15 @@ APP_ALIASES = {
     "photos": "Photos",
     "calculator": "Calculator",
     "preview": "Preview",
+    "chatgpt": "ChatGPT",
+    "chat gpt": "ChatGPT",
+    "gpt": "ChatGPT",
+    "claude": "Claude",
+    "mdapp": "MDapp",
+    "md app": "MDapp",
+    "message": "Messages",
+    "whatsapp": "WhatsApp",
+    "whats app": "WhatsApp",
 }
 
 _SITE_INTENT = re.compile(r"\b(go to|open|visit|pull up|bring up|load|navigate to|take me to)\b", re.I)

@@ -88,6 +88,7 @@ SITES: dict[str, str] = {
     "amazon": "https://www.amazon.com",
     "netflix": "https://www.netflix.com",
     "chatgpt": "https://chatgpt.com",
+    "codex": "https://chatgpt.com/codex",
     "claude": "https://claude.ai",
     "notion": "https://www.notion.so",
     "spotify_web": "https://open.spotify.com",
