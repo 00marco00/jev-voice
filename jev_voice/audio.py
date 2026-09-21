@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import threading
 import time
 from dataclasses import dataclass
 
@@ -23,6 +24,10 @@ class VADConfig:
     pre_roll_ms: int = 240         # audio kept from before speech start
     threshold_mult: float = 3.5    # loudness over noise floor
     floor_min: float = 0.004
+
+
+class StopListening(Exception):
+    """Raised to unwind a voice loop for engine restart (tray mode switch)."""
 
 
 class Listener:
@@ -59,7 +64,7 @@ class Listener:
             except queue.Empty:
                 break
 
-    def next_utterance(self) -> np.ndarray:
+    def next_utterance(self, stop: threading.Event | None = None) -> np.ndarray:
         v = self.vad
         pre_n = v.pre_roll_ms // FRAME_MS
         ring: list[np.ndarray] = []
@@ -68,7 +73,12 @@ class Listener:
         silence_ms = 0
         in_speech = False
         while True:
-            frame = self.q.get()
+            if stop is not None and stop.is_set():
+                raise StopListening
+            try:
+                frame = self.q.get(timeout=0.1)
+            except queue.Empty:
+                continue
             if time.monotonic() < self.paused_until:
                 ring.clear(); speech.clear(); in_speech = False; loud_run = 0
                 continue

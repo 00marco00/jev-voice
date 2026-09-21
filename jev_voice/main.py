@@ -36,6 +36,10 @@ SOUND_DONE = "/System/Library/Sounds/Glass.aiff"
 FEEDBACK = os.environ.get("FEEDBACK", "ding")
 IDLE_LABEL = "Listening"
 
+# Set by the tray to unwind the engine for a mode switch. The loops below
+# check it; blocking queue reads raise StopListening (see audio.py).
+STOP = threading.Event()
+
 
 def ding(path: str) -> None:
     subprocess.Popen(["afplay", "-v", "0.4", path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -290,6 +294,7 @@ def run_smart(s: Session) -> None:
     """Hands-free. Mic is always open; only utterances that name the assistant (or follow
     a command within FOLLOWUP_SECONDS, or follow a Caps Lock tap) are sent to Laya."""
     from .hotkey import CapsLockListener, capslock_remapped, remap_capslock
+    from .audio import StopListening
 
     armed = {"until": 0.0}
 
@@ -315,8 +320,11 @@ def run_smart(s: Session) -> None:
         ding(SOUND_DONE)
     s.listener.pause(0.8)
     s.listener.on_speech_start = lambda: OVERLAY.set("listening", "Listening…")
-    while True:
-        pcm = s.listener.next_utterance()
+    while not STOP.is_set():
+        try:
+            pcm = s.listener.next_utterance(STOP)
+        except StopListening:
+            break
         OVERLAY.set("heard", "Transcribing…")
         t0 = time.perf_counter()
         text = s.stt.transcribe(pcm)
@@ -360,12 +368,14 @@ def run_smart(s: Session) -> None:
         arm(FOLLOWUP_SECONDS)
         if not ok:
             break
+    tap.stop()
 
 
 def run_capslock(s: Session) -> None:
     """Hold Caps Lock to talk, release to run. A short tap (<250 ms) toggles hands-free
     recording on; the next tap stops it."""
     from .hotkey import CapsLockListener, capslock_remapped, remap_capslock
+    from .audio import StopListening
 
     if not capslock_remapped():
         remap_capslock()
@@ -376,15 +386,18 @@ def run_capslock(s: Session) -> None:
     state = {"pressed_at": 0.0, "latched": False}
 
     def collector() -> None:
-        while True:
-            recording.wait()
+        while not STOP.is_set():
+            if not recording.wait(timeout=0.1):
+                continue
             s.listener.drain()
             parts: list[np.ndarray] = []
-            while recording.is_set():
+            while recording.is_set() and not STOP.is_set():
                 try:
                     parts.append(s.listener.q.get(timeout=0.05))
                 except queue.Empty:
                     pass
+            if STOP.is_set():
+                return
             done.put(np.concatenate(parts) if parts else np.zeros(0, dtype=np.float32))
 
     threading.Thread(target=collector, daemon=True).start()
@@ -419,8 +432,11 @@ def run_capslock(s: Session) -> None:
         print("  Tick this app in System Settings → Privacy & Security → Accessibility AND Input Monitoring.")
         open_permission_panes()
         s.speaker.say("I need Accessibility and Input Monitoring permission. Please tick them in System Settings.")
-        while True:
+        while not STOP.is_set():
             time.sleep(2.0)
+            if STOP.is_set():
+                tap.stop()
+                return
             tap = CapsLockListener(on_press, on_release)
             if tap.start():
                 break
@@ -431,18 +447,29 @@ def run_capslock(s: Session) -> None:
             perms = request_permissions()
     print(f"⌨️  Hold CAPS LOCK and speak. Tap it to toggle hands-free. (Laya {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
     s.speaker.say(flavor("Ready."))
-    while True:
-        pcm = done.get()
-        if not s.process(pcm):
-            break
+    try:
+        while not STOP.is_set():
+            try:
+                pcm = done.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if not s.process(pcm):
+                break
+    finally:
+        tap.stop()
 
 
 def run_always_on(s: Session) -> None:
+    from .audio import StopListening
+
     print(f"🎙  Listening (Laya {s.brain.model}, whisper base.en). Say 'stop listening' to quit.")
     s.speaker.say(flavor("Ready."))
     s.listener.pause(0.8)
-    while True:
-        pcm = s.listener.next_utterance()
+    while not STOP.is_set():
+        try:
+            pcm = s.listener.next_utterance(STOP)
+        except StopListening:
+            return
         if not s.process(pcm):
             break
 

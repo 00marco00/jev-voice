@@ -58,6 +58,7 @@ class CapsLockListener:
         self.on_press, self.on_release = on_press, on_release
         self.down = False
         self.thread: threading.Thread | None = None
+        self.rl = None  # CFRunLoop of the tap thread (for stop())
         self.ok = threading.Event()
         self.failed = threading.Event()
 
@@ -89,10 +90,25 @@ class CapsLockListener:
             self.failed.set()
             return
         src = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
-        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), src, Quartz.kCFRunLoopCommonModes)
+        self.rl = Quartz.CFRunLoopGetCurrent()
+        Quartz.CFRunLoopAddSource(self.rl, src, Quartz.kCFRunLoopCommonModes)
         Quartz.CGEventTapEnable(tap, True)
         self.ok.set()
         Quartz.CFRunLoopRun()
+
+    def stop(self) -> None:
+        """Stop the tap thread (for engine restart). No-op if never started."""
+        try:
+            import Quartz  # type: ignore
+
+            if self.rl is not None:
+                Quartz.CFRunLoopStop(self.rl)
+        except Exception:
+            pass
+        if self.thread is not None:
+            self.thread.join(timeout=2.0)
+            self.thread = None
+        self.rl = None
 
     def start(self) -> bool:
         self.thread = threading.Thread(target=self._run, daemon=True, name="capslock-tap")
