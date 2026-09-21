@@ -52,7 +52,8 @@ class WhisperServer:
                              "  curl -L -o models/ggml-base.en.bin https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin")
         self.proc = subprocess.Popen(
             [exe, "-m", str(config.WHISPER_MODEL), "--host", "127.0.0.1", "--port", str(self.port),
-             "-t", str(config.WHISPER_THREADS), "-l", "en", "-nt"],
+              "-t", str(config.WHISPER_THREADS), "-l", "en", "-nt",
+              "--prompt", config.WHISPER_PROMPT],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
         for _ in range(200):
