@@ -411,6 +411,7 @@ def run_capslock(s: Session) -> None:
             return
         s.speaker.interrupt()
         ding(SOUND_START)
+        OVERLAY.set("listening", "Listening…")
         recording.set()
 
     def on_release() -> None:

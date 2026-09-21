@@ -8,6 +8,7 @@ States: idle · listening · heard · thinking · done · error
 """
 from __future__ import annotations
 
+import os
 import threading
 import warnings
 from typing import Callable
@@ -36,6 +37,10 @@ COLORS = {
 IDLE_TEXT = "Listening"
 HEIGHT = 34.0
 MIN_W, MAX_W = 150.0, 720.0
+
+# Hide the pill when idle; it appears on listening/heard/thinking/done/error
+# and vanishes after. OVERLAY_IDLE=1 keeps the persistent "Listening" pill.
+HIDE_IDLE = os.environ.get("OVERLAY_IDLE", "hide") == "hide"
 
 
 class Overlay:
@@ -84,9 +89,15 @@ class Overlay:
         root.addSubview_(lb)
 
         self._apply("idle", IDLE_TEXT)
-        p.orderFrontRegardless()
+        if HIDE_IDLE:
+            p.orderOut_(None)
+        else:
+            p.orderFrontRegardless()
 
     def _apply(self, state: str, text: str) -> None:
+        if state == "idle" and HIDE_IDLE:
+            self.panel.orderOut_(None)
+            return
         r, g, b = COLORS.get(state, COLORS["idle"])
         self.dot.layer().setBackgroundColor_(NSColor.colorWithCalibratedRed_green_blue_alpha_(r, g, b, 1).CGColor())
         self.label.setStringValue_(text)
@@ -99,6 +110,7 @@ class Overlay:
         x = screen.origin.x + (screen.size.width - w) / 2
         y = screen.origin.y + screen.size.height - HEIGHT - 8
         self.panel.setFrame_display_(NSMakeRect(x, y, w, HEIGHT), True)
+        self.panel.orderFrontRegardless()
 
     def prepare(self) -> None:
         """Build the panel for a host-owned runloop (e.g. the rumps tray).
