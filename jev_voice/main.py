@@ -191,6 +191,33 @@ class Session:
         self.speaker = Speaker(enabled=not args.quiet)
         self.listener = Listener(device=args.device)
         self.listener.start()
+        self._mic_check()
+
+    def _mic_check(self) -> None:
+        """Warn loudly if the mic delivers only zeros (permission or device).
+
+        macOS grants Microphone per terminal app; without it PortAudio logs
+        `PaMacCore (AUHAL) err='-50'` and every utterance is silence.
+        """
+        frames: list[np.ndarray] = []
+        t0 = time.monotonic()
+        self.listener.drain()
+        while time.monotonic() - t0 < 0.8:
+            try:
+                frames.append(self.listener.q.get(timeout=0.1))
+            except Exception:
+                break
+        peak = float(max((np.sqrt(np.mean(f * f)) for f in frames), default=0.0))
+        if peak < 0.0008:
+            print("⚠ Microphone delivers silence: grant Microphone permission to THIS terminal app,")
+            print("  or force a device: jev --device \"MacBook\"  (list: uv run python -m sounddevice)")
+            try:
+                subprocess.Popen(
+                    ["open", "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"],
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
 
     def close(self) -> None:
         self.listener.stop()
