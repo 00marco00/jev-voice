@@ -100,6 +100,13 @@ class Overlay:
         y = screen.origin.y + screen.size.height - HEIGHT - 8
         self.panel.setFrame_display_(NSMakeRect(x, y, w, HEIGHT), True)
 
+    def prepare(self) -> None:
+        """Build the panel for a host-owned runloop (e.g. the rumps tray).
+
+        Unlike run(), this does not pump the loop and does not start a worker.
+        """
+        self._build()
+
     # ---------------------------------------------------------- any thread
 
     def set(self, state: str, text: str, revert_after: float | None = None) -> None:

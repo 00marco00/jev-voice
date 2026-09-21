@@ -12,11 +12,13 @@ dependencies = [
     "pyobjc-framework-applicationservices>=12.2.2",
     "pyobjc-framework-cocoa>=12.2.2",
     "pyobjc-framework-quartz>=12.2.2",
+    "rumps>=0.4.0",
     "sounddevice>=0.5.6",
 ]
 
 [project.scripts]
 jev-voice = "jev_voice.main:main"
+jev-tray = "jev_voice.tray:main"
 
 [build-system]
 requires = ["hatchling"]

@@ -40,14 +40,40 @@ PLIST
 launchctl bootout "gui/$(id -u)/ai.jev.capslock" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$AGENTS/ai.jev.capslock.plist"
 
-echo "▸ 'jev' launcher in ~/.local/bin"
+echo "▸ 'jev' and 'jev-tray' launchers in ~/.local/bin"
 mkdir -p "$HOME/.local/bin"
+UVBIN="$(command -v uv)"
 cat > "$HOME/.local/bin/jev" <<LAUNCH
 #!/bin/zsh
-cd "$ROOT" && exec uv run jev-voice "\$@"
+cd "$ROOT" && exec "$UVBIN" run jev-voice "\$@"
 LAUNCH
-chmod +x "$HOME/.local/bin/jev"
+cat > "$HOME/.local/bin/jev-tray" <<LAUNCH
+#!/bin/zsh
+cd "$ROOT" && exec "$UVBIN" run jev-tray "\$@"
+LAUNCH
+chmod +x "$HOME/.local/bin/jev" "$HOME/.local/bin/jev-tray"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zshrc";; esac
+
+echo "▸ Menu bar autostart (LaunchAgent ai.jev.tray, logs in ~/Library/Logs/jev-tray.log)"
+mkdir -p "$HOME/Library/Logs"
+cat > "$AGENTS/ai.jev.tray.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>ai.jev.tray</string>
+  <key>ProgramArguments</key><array>
+    <string>$HOME/.local/bin/jev-tray</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/jev-tray.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/jev-tray.log</string>
+</dict></plist>
+PLIST
+launchctl bootout "gui/$(id -u)/ai.jev.tray" 2>/dev/null || true
+launchctl bootstrap "gui/$(id -u)" "$AGENTS/ai.jev.tray.plist"
+echo "  NOTE: macOS grants Microphone/Accessibility per identity: run jev-tray once"
+echo "  manually so the prompts appear, then the agent is covered. Mode: JEV_MODE=smart|hold|always."
 
 echo "▸ Permissions (grant your terminal app: Cursor / Terminal / iTerm)"
 open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
