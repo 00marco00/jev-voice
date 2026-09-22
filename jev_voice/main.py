@@ -372,8 +372,9 @@ def run_smart(s: Session) -> None:
 
 
 def run_capslock(s: Session) -> None:
-    """Hold Caps Lock to talk, release to run. A short tap (<250 ms) toggles hands-free
-    recording on; the next tap stops it."""
+    """Hold Caps Lock to talk, release to run. Pure push-to-talk: every press
+    records until release, no latching (a tap would otherwise silently arm
+    hands-free recording and execute room chatter)."""
     from .hotkey import CapsLockListener, capslock_remapped, remap_capslock
     from .audio import StopListening
 
@@ -383,7 +384,6 @@ def run_capslock(s: Session) -> None:
             print("⚠ Could not remap Caps Lock with hidutil. Run scripts/setup.sh.")
     recording = threading.Event()
     done: queue.Queue[np.ndarray] = queue.Queue()
-    state = {"pressed_at": 0.0, "latched": False}
 
     def collector() -> None:
         while not STOP.is_set():
@@ -403,23 +403,13 @@ def run_capslock(s: Session) -> None:
     threading.Thread(target=collector, daemon=True).start()
 
     def on_press() -> None:
-        state["pressed_at"] = time.monotonic()
-        if state["latched"]:          # tap while latched: stop
-            state["latched"] = False
-            recording.clear()
-            ding(SOUND_STOP)
-            return
         s.speaker.interrupt()
         ding(SOUND_START)
         OVERLAY.set("listening", "Listening…")
         recording.set()
 
     def on_release() -> None:
-        held = time.monotonic() - state["pressed_at"]
         if not recording.is_set():
-            return
-        if held < 0.25:               # short tap: latch hands-free
-            state["latched"] = True
             return
         recording.clear()
         ding(SOUND_STOP)
@@ -446,7 +436,7 @@ def run_capslock(s: Session) -> None:
                 s.speaker.say("Permissions granted. Please restart me.")
                 sys.exit(3)
             perms = request_permissions()
-    print(f"⌨️  Hold CAPS LOCK and speak. Tap it to toggle hands-free. (Laya {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
+    print(f"⌨️  Hold CAPS LOCK and speak, release to run. (Laya {s.brain.model}, whisper base.en, voice {s.speaker.engine}:{s.speaker.voice})")
     s.speaker.say(flavor("Ready."))
     try:
         while not STOP.is_set():
